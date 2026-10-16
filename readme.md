@@ -73,3 +73,96 @@ Open a terminal in this folder and run:
 
 ```bash
 python3 serve.py
+
+The script will print something like:
+
+============================================================
+  PS4 JB server running
+============================================================
+  Port: 7000
+
+  Open this on the PS4 browser:
+      http://10.34.193.98:7000/jb.html
+      http://192.168.1.42:7000/jb.html
+============================================================
+Copy one of those URLs. If the first one doesn't load on the PS4,
+try the other — your laptop may have multiple network interfaces
+(Wi-Fi + Ethernet, VPN, Docker, etc.) and only one of them is the
+one the PS4 can reach.
+
+3. First run on the PS4
+Open the PS4 browser, type the URL from step 2 into the address bar.
+The jailbreak will run. On this first run, the browser also
+downloads and caches every file the app needs (the AppCache manifest
+handles this automatically). This means:
+
+You only need the server running once per PS4 browser session.
+
+After the first load, the files are cached locally on the PS4, and
+the server is only needed if you clear the browser data.
+
+4. Make it permanent
+Bookmark the URL on the PS4 browser. Use it like that from now on.
+Do not add query parameters (?log=, ?slots=, etc.) to the
+bookmark — the default values are already tuned and the extra
+parameters slow things down.
+
+5. Subsequent runs
+Tap the bookmark. The PS4 loads everything from cache. Jailbreak
+happens.
+
+Important: if the PS4 ever shows a "connection error" instead of
+loading the page, your AppCache was cleared (or the PS4's WebKit
+build requires the server to be reachable at navigation time). In
+that case, just start serve.py on the laptop again and retry.
+
+What this repo contains
+File	Purpose
+index.html	Landing page
+jb.html	Jailbreak trigger page — this is the URL you bookmark
+jb.js	Top-level orchestrator
+core.js	JS engine primitive builder
+mem.js	Memory read/write façade
+int64.js	64-bit integer type
+ps4_offsets.js	Firmware offset table (13.02 only)
+rpc_worker.js	Web Worker used by the pivot chain
+cache.appcache	AppCache manifest — do not edit by hand
+serve.py	Local HTTP server with logging
+payload2.bin	Payload pushed to kernel after JB
+goldhen.bin	Alternate payload
+patches/*.bin	Kernel patches for various firmwares
+Tuning knobs (for the curious)
+These are set inside core.js. Do not change them unless you
+know what you're doing — the exploit's heap layout depends on them
+being exactly right.
+
+CARRIER_SLOTS — heap carrier buffer size. Default 2000000.
+Lower = faster but more likely to fail. Higher = slower but more
+reliable.
+
+FILLER_OVERRIDE — heap filler objects. Default 0xfffe - K.
+
+Both can be overridden at runtime with URL parameters (?slots=,
+?filler=) for testing, but the defaults in the file are the values
+that were verified to work.
+
+Reporting problems
+I'm not maintaining this as a product, and I won't respond to bug
+reports. If you find a fix for the stability issue, feel free to
+open a PR.
+
+Credits
+The original exploit host is raw13g/raw13g.github.io. This repo is
+a heavily modified fork tuned for personal use. All credit for the
+underlying exploit goes to the original author and the broader PS4
+scene developers who reverse-engineered the WebKit and kernel bugs.
+
+This README, the modifications to core.js / mem.js / jb.js /
+int64.js / serve.py, and the performance tuning pass were all
+written by an AI. If that bothers you, don't use it.
+
+Final reminder: PS4 Phat on 13.02 only. Same Wi-Fi as your
+laptop. Run python3 serve.py once, bookmark the URL on the PS4,
+done. Everything after that is offline.
+
+Use at your own risk.
