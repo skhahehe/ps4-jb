@@ -5,7 +5,7 @@ import {
   fakeCellReleased,
   carrierHeaderCopy,
   carrierHomeVector,
-} from "./core.js?v=10";
+} from "./core.js";
 
 let carrier = null;
 
@@ -174,7 +174,23 @@ function write8(addr, value) {
     carrier.restore();
   }
 }
-
+function writeBytes(addr, bytes) {
+  const base = addrNumber(addr);
+  const len = bytes.length;
+  let done = 0;
+  while (done < len) {
+    const chunk = Math.min(len - done, carrier.windowBytes);
+    aimFor(base + done, chunk);
+    try {
+      const view = carrier.view;
+      for (let i = 0; i < chunk; ++i) view[i] = bytes[done + i];
+    } finally {
+      carrier.restore();
+    }
+    done += chunk;
+  }
+  return done;
+}
 function leakval(obj) {
   if (obj === null || (typeof obj !== "object" && typeof obj !== "function"))
     throw new TypeError("mem.leakval: not an object");
@@ -883,6 +899,8 @@ export function installWindowP(c, options) {
     write2,
     write4,
     write8,
+    writeBytes,
+    readInto,
     leakval,
   };
   globalThis.p = prim;

