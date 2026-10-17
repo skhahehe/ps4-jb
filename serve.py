@@ -2,7 +2,7 @@ import http.server
 import socketserver
 import urllib.parse
 
-PORT = 8080
+PORT = 8082
 
 class H(http.server.SimpleHTTPRequestHandler):
     extensions_map = {
