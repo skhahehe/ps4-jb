@@ -28,7 +28,7 @@ const CARRIER_SLOTS = (function () {
     const n = q ? parseInt(q, 10) : 0;
     if (n >= 100000 && n <= 40000000) return n;
   } catch (e) {}
-    return 2000000;
+      return 6000000;
 })();
 const CARRIER_BYTES = CARRIER_SLOTS * 8;
 const CAPTURE_DELAY_MS = 50;
@@ -466,7 +466,7 @@ function scheduleSafeRetry(reason) {
       attemptNumber = nextAttempt;
       startAttempt();
     },
-    Math.max(AUTO_RETRY_DELAY_MS, 750),
+    Math.max(AUTO_RETRY_DELAY_MS, 400),
   );
 }
 
