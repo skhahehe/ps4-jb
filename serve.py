@@ -2,7 +2,7 @@ import http.server
 import socketserver
 import urllib.parse
 
-PORT = 8082
+PORT = 8080
 
 class H(http.server.SimpleHTTPRequestHandler):
     extensions_map = {
@@ -18,17 +18,13 @@ class H(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-
-        if path == '/favicon.ico':
-            return
-
+        if path == '/favicon.ico': return
         if path.endswith('.appcache'):
             print(f"\n📄 [MANIFEST CHECK] PS4 is checking cache.appcache...")
         elif path in ['/jb.html', '/index.html']:
             print(f"\n🌐 [PAGE LOAD] {path}")
         elif path.endswith('.js') or path.endswith('.bin') or path.endswith('.png'):
             print(f"📥 [DOWNLOAD] Fetching {path}")
-
         super().do_GET()
 
     def do_POST(self):
@@ -37,9 +33,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         params = urllib.parse.parse_qs(body)
         tag = params.get('tag', [''])[0]
         detail = params.get('detail', [''])[0]
-        if tag != "REAP":
-            print(f"  [{tag}] {detail}")
-
+        if tag != "REAP": print(f"  [{tag}] {detail}")
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
         self.send_header('Content-Length', '2')
@@ -47,12 +41,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(b'ok')
 
 def main():
-    print("=" * 60)
-    print(f"  PS4 JB server running (Port {PORT})")
-    print("=" * 60)
-    print(f"  http://10.34.193.98:{PORT}/jb.html")
-    print("=" * 60 + "\n")
-
+    print(f"PS4 JB server running on port {PORT}")
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), H) as httpd:
         httpd.serve_forever()
